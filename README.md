@@ -15,9 +15,9 @@ This repository provides reusable GitHub Actions workflows and composite actions
 
 ### Reusable Workflows
 
-Reference workflows using `uses: Lakio/ci-workflows/.github/workflows/<workflow>.yml@v1`
+Reference workflows using `uses: JordanOlivet/ci-workflows/.github/workflows/<workflow>.yml@v1`
 
-#### reusable-release.yml
+#### release.yml
 
 Handles version bumping, Git tagging, and changelog generation based on PR labels.
 
@@ -30,7 +30,7 @@ on:
 
 jobs:
   release:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-release.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/release.yml@v1
     with:
       version-source: file  # file, cargo, or npm
       version-file: VERSION
@@ -53,14 +53,14 @@ jobs:
 | `tag` | Git tag (v-prefixed) |
 | `should_release` | Whether a release should be created |
 
-#### reusable-build-rust.yml
+#### build-rust.yml
 
 Multi-platform Rust binary builds.
 
 ```yaml
 jobs:
   build:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-rust.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-rust.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       platforms: |
@@ -73,14 +73,14 @@ jobs:
     secrets: inherit
 ```
 
-#### reusable-build-docker.yml
+#### build-docker.yml
 
 Docker image build and push to GHCR.
 
 ```yaml
 jobs:
   build-docker:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-docker.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-docker.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       image-name: my-app
@@ -89,14 +89,14 @@ jobs:
     secrets: inherit
 ```
 
-#### reusable-build-dotnet.yml
+#### build-dotnet.yml
 
 .NET project build and test.
 
 ```yaml
 jobs:
   build:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-dotnet.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-dotnet.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       project-path: src/MyProject
@@ -105,14 +105,14 @@ jobs:
     secrets: inherit
 ```
 
-#### reusable-build-node.yml
+#### build-node.yml
 
 Node.js project build and test.
 
 ```yaml
 jobs:
   build:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-node.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-node.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       working-directory: frontend
@@ -121,14 +121,14 @@ jobs:
     secrets: inherit
 ```
 
-#### reusable-gh-release.yml
+#### gh-release.yml
 
 Create GitHub Release with artifacts.
 
 ```yaml
 jobs:
   create-release:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-gh-release.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/gh-release.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       tag: ${{ needs.release.outputs.tag }}
@@ -142,21 +142,21 @@ Use composite actions for more granular control:
 
 ```yaml
 steps:
-  - uses: Lakio/ci-workflows/actions/extract-version@v1
+  - uses: JordanOlivet/ci-workflows/actions/extract-version@v1
     with:
       source: cargo
       path: Cargo.toml
 
-  - uses: Lakio/ci-workflows/actions/determine-bump@v1
+  - uses: JordanOlivet/ci-workflows/actions/determine-bump@v1
     with:
       labels: ${{ toJson(github.event.pull_request.labels.*.name) }}
 
-  - uses: Lakio/ci-workflows/actions/calculate-version@v1
+  - uses: JordanOlivet/ci-workflows/actions/calculate-version@v1
     with:
       current: ${{ steps.extract.outputs.base_version }}
       bump_type: ${{ steps.bump.outputs.bump_type }}
 
-  - uses: Lakio/ci-workflows/actions/update-version-file@v1
+  - uses: JordanOlivet/ci-workflows/actions/update-version-file@v1
     with:
       source: cargo
       path: Cargo.toml
@@ -186,7 +186,7 @@ on:
 
 jobs:
   release:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-release.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/release.yml@v1
     with:
       version-source: cargo
       version-file: Cargo.toml
@@ -196,7 +196,7 @@ jobs:
   build:
     needs: release
     if: needs.release.outputs.should_release == 'true'
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-rust.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-rust.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       platforms: |
@@ -210,7 +210,7 @@ jobs:
 
   create-release:
     needs: [release, build]
-    uses: Lakio/ci-workflows/.github/workflows/reusable-gh-release.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/gh-release.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       tag: ${{ needs.release.outputs.tag }}
@@ -228,7 +228,7 @@ on:
 
 jobs:
   release:
-    uses: Lakio/ci-workflows/.github/workflows/reusable-release.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/reusable-release.yml@v1
     with:
       version-source: file
       version-file: VERSION
@@ -238,7 +238,7 @@ jobs:
   build-backend:
     needs: release
     if: needs.release.outputs.should_release == 'true'
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-dotnet.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/reusable-build-dotnet.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       project-path: docker-compose-manager-back
@@ -247,7 +247,7 @@ jobs:
   build-frontend:
     needs: release
     if: needs.release.outputs.should_release == 'true'
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-node.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/reusable-build-node.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       working-directory: docker-compose-manager-front
@@ -256,7 +256,7 @@ jobs:
   build-docker:
     needs: [release, build-backend, build-frontend]
     if: needs.release.outputs.should_release == 'true'
-    uses: Lakio/ci-workflows/.github/workflows/reusable-build-docker.yml@v1
+    uses: JordanOlivet/ci-workflows/.github/workflows/reusable-build-docker.yml@v1
     with:
       version: ${{ needs.release.outputs.version }}
       image-name: docker-compose-manager

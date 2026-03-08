@@ -63,27 +63,27 @@ jobs:
 
       - name: Extract current version
         id: extract
-        uses: Lakio/ci-workflows/actions/extract-version@v1
+        uses: JordanOlivet/ci-workflows/actions/extract-version@v1
         with:
           source: ${{ inputs.version-source }}
           path: ${{ inputs.version-file }}
 
       - name: Determine bump type
         id: bump
-        uses: Lakio/ci-workflows/actions/determine-bump@v1
+        uses: JordanOlivet/ci-workflows/actions/determine-bump@v1
         with:
           labels: ${{ toJson(github.event.pull_request.labels.*.name) }}
 
       - name: Calculate new version
         id: calc
-        uses: Lakio/ci-workflows/actions/calculate-version@v1
+        uses: JordanOlivet/ci-workflows/actions/calculate-version@v1
         with:
           current: ${{ steps.extract.outputs.base_version }}
           bump_type: ${{ steps.bump.outputs.bump_type }}
 
       - name: Update version file
         if: inputs.commit-version
-        uses: Lakio/ci-workflows/actions/update-version-file@v1
+        uses: JordanOlivet/ci-workflows/actions/update-version-file@v1
         with:
           source: ${{ inputs.version-source }}
           path: ${{ inputs.version-file }}
