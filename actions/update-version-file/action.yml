@@ -1,0 +1,64 @@
+name: 'Update Version File'
+description: 'Updates version in VERSION file, Cargo.toml, or package.json'
+
+inputs:
+  source:
+    description: 'Version source: file, cargo, or npm'
+    required: false
+    default: 'file'
+  path:
+    description: 'Path to version file (relative to repo root)'
+    required: false
+    default: 'VERSION'
+  version:
+    description: 'New version to write'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update version file
+      shell: bash
+      run: |
+        SOURCE="${{ inputs.source }}"
+        PATH_INPUT="${{ inputs.path }}"
+        VERSION="${{ inputs.version }}"
+
+        # Remove v prefix if present
+        VERSION=$(echo "$VERSION" | sed 's/^v//')
+
+        case "$SOURCE" in
+          file)
+            echo "$VERSION" > "$PATH_INPUT"
+            echo "Updated $PATH_INPUT to $VERSION"
+            ;;
+          cargo)
+            sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$PATH_INPUT"
+            echo "Updated $PATH_INPUT to version $VERSION"
+            ;;
+          npm)
+            # Use jq if available, otherwise sed
+            if command -v jq &> /dev/null; then
+              jq --arg v "$VERSION" '.version = $v' "$PATH_INPUT" > tmp.json && mv tmp.json "$PATH_INPUT"
+            else
+              sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$PATH_INPUT"
+            fi
+            echo "Updated $PATH_INPUT to version $VERSION"
+            ;;
+          *)
+            echo "::error::Unknown source type: $SOURCE"
+            exit 1
+            ;;
+        esac
+
+    - name: Show updated file
+      shell: bash
+      run: |
+        SOURCE="${{ inputs.source }}"
+        PATH_INPUT="${{ inputs.path }}"
+
+        if [ "$SOURCE" = "file" ]; then
+          cat "$PATH_INPUT"
+        else
+          head -10 "$PATH_INPUT"
+        fi

@@ -1,0 +1,120 @@
+name: Reusable Node.js Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version number'
+        required: true
+        type: string
+      working-directory:
+        description: 'Working directory for npm commands'
+        required: false
+        type: string
+        default: '.'
+      node-version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+      package-manager:
+        description: 'Package manager: npm, pnpm, or yarn'
+        required: false
+        type: string
+        default: 'npm'
+      run-tests:
+        description: 'Run tests'
+        required: false
+        type: boolean
+        default: true
+      test-command:
+        description: 'Test command'
+        required: false
+        type: string
+        default: 'test -- --run'
+      build-command:
+        description: 'Build command'
+        required: false
+        type: string
+        default: 'build'
+      upload-build:
+        description: 'Upload build artifacts'
+        required: false
+        type: boolean
+        default: false
+      build-output-path:
+        description: 'Path to build output'
+        required: false
+        type: string
+        default: 'dist'
+
+jobs:
+  build:
+    name: Build Node.js
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm)
+              npm ci
+              ;;
+            pnpm)
+              pnpm install --frozen-lockfile
+              ;;
+            yarn)
+              yarn install --frozen-lockfile
+              ;;
+          esac
+
+      - name: Update version in package.json
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          npm version ${{ inputs.version }} --no-git-tag-version --allow-same-version || true
+
+      - name: Run tests
+        if: inputs.run-tests
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          ${{ inputs.package-manager }} run ${{ inputs.test-command }}
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          ${{ inputs.package-manager }} run ${{ inputs.build-command }}
+        env:
+          VITE_APP_VERSION: ${{ inputs.version }}
+
+      - name: Upload build artifacts
+        if: inputs.upload-build
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-build
+          path: ${{ inputs.working-directory }}/${{ inputs.build-output-path }}
+
+      - name: Summary
+        run: |
+          echo "### Node.js Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Directory:** ${{ inputs.working-directory }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Node:** ${{ inputs.node-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package Manager:** ${{ inputs.package-manager }}" >> $GITHUB_STEP_SUMMARY

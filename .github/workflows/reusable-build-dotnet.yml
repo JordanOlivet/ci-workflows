@@ -1,0 +1,99 @@
+name: Reusable .NET Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version number'
+        required: true
+        type: string
+      project-path:
+        description: 'Path to .NET project or solution'
+        required: true
+        type: string
+      configuration:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Release'
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '9.0.x'
+      run-tests:
+        description: 'Run tests'
+        required: false
+        type: boolean
+        default: true
+      test-project:
+        description: 'Path to test project (if different from main project)'
+        required: false
+        type: string
+        default: ''
+      publish:
+        description: 'Create publish artifacts'
+        required: false
+        type: boolean
+        default: false
+      publish-runtime:
+        description: 'Target runtime for publish'
+        required: false
+        type: string
+        default: 'linux-x64'
+
+jobs:
+  build:
+    name: Build .NET
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Restore dependencies
+        working-directory: ${{ inputs.project-path }}
+        run: dotnet restore
+
+      - name: Build
+        working-directory: ${{ inputs.project-path }}
+        run: |
+          dotnet build --configuration ${{ inputs.configuration }} --no-restore \
+            -p:Version=${{ inputs.version }} \
+            -p:AssemblyVersion=${{ inputs.version }}.0 \
+            -p:FileVersion=${{ inputs.version }}.0 \
+            -p:InformationalVersion=${{ inputs.version }}
+
+      - name: Run tests
+        if: inputs.run-tests
+        working-directory: ${{ inputs.test-project || inputs.project-path }}
+        run: dotnet test --no-build --configuration ${{ inputs.configuration }} --verbosity normal
+
+      - name: Publish
+        if: inputs.publish
+        working-directory: ${{ inputs.project-path }}
+        run: |
+          dotnet publish --configuration ${{ inputs.configuration }} --no-build \
+            --runtime ${{ inputs.publish-runtime }} \
+            --output ./publish
+
+      - name: Upload publish artifacts
+        if: inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-publish-${{ inputs.publish-runtime }}
+          path: ${{ inputs.project-path }}/publish
+
+      - name: Summary
+        run: |
+          echo "### .NET Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** ${{ inputs.project-path }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:** ${{ inputs.configuration }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tests:** ${{ inputs.run-tests }}" >> $GITHUB_STEP_SUMMARY

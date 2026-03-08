@@ -1,0 +1,42 @@
+name: 'Determine Version Bump'
+description: 'Determines version bump type from PR labels'
+
+inputs:
+  labels:
+    description: 'JSON array of PR label names'
+    required: true
+
+outputs:
+  bump_type:
+    description: 'Bump type: major, minor, patch, or none'
+    value: ${{ steps.determine.outputs.bump_type }}
+  should_release:
+    description: 'Whether a release should be created'
+    value: ${{ steps.determine.outputs.should_release }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine bump type
+      id: determine
+      shell: bash
+      run: |
+        LABELS='${{ inputs.labels }}'
+
+        if echo "$LABELS" | grep -q "release-major"; then
+          echo "bump_type=major" >> $GITHUB_OUTPUT
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "Bump type: MAJOR"
+        elif echo "$LABELS" | grep -q "release-minor"; then
+          echo "bump_type=minor" >> $GITHUB_OUTPUT
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "Bump type: MINOR"
+        elif echo "$LABELS" | grep -q "release-patch"; then
+          echo "bump_type=patch" >> $GITHUB_OUTPUT
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "Bump type: PATCH"
+        else
+          echo "bump_type=none" >> $GITHUB_OUTPUT
+          echo "should_release=false" >> $GITHUB_OUTPUT
+          echo "No release label found"
+        fi

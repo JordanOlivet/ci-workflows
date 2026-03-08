@@ -1,0 +1,84 @@
+name: 'Extract Version'
+description: 'Extracts version from VERSION file, Cargo.toml, or package.json'
+
+inputs:
+  source:
+    description: 'Version source: file, cargo, or npm'
+    required: false
+    default: 'file'
+  path:
+    description: 'Path to version file (relative to repo root)'
+    required: false
+    default: 'VERSION'
+
+outputs:
+  version:
+    description: 'Current version (may include -dev suffix for non-tag builds)'
+    value: ${{ steps.extract.outputs.version }}
+  base_version:
+    description: 'Base version without dev suffix'
+    value: ${{ steps.extract.outputs.base_version }}
+  is_tag:
+    description: 'Whether this is a tag build'
+    value: ${{ steps.extract.outputs.is_tag }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Extract version
+      id: extract
+      shell: bash
+      run: |
+        SOURCE="${{ inputs.source }}"
+        PATH_INPUT="${{ inputs.path }}"
+
+        # Check if we're on a tag
+        if git describe --tags --exact-match 2>/dev/null; then
+          BASE_VERSION=$(git describe --tags --exact-match | sed 's/^v//')
+          VERSION="${BASE_VERSION}"
+          IS_TAG="true"
+        else
+          IS_TAG="false"
+
+          # Extract version based on source type
+          case "$SOURCE" in
+            file)
+              if [ -f "$PATH_INPUT" ]; then
+                BASE_VERSION=$(cat "$PATH_INPUT" | tr -d '\n\r' | sed 's/^v//')
+              else
+                echo "::warning::VERSION file not found at $PATH_INPUT, using 0.1.0"
+                BASE_VERSION="0.1.0"
+              fi
+              ;;
+            cargo)
+              if [ -f "$PATH_INPUT" ]; then
+                BASE_VERSION=$(grep -m1 '^version = ' "$PATH_INPUT" | sed 's/version = "\(.*\)"/\1/')
+              else
+                echo "::warning::Cargo.toml not found at $PATH_INPUT, using 0.1.0"
+                BASE_VERSION="0.1.0"
+              fi
+              ;;
+            npm)
+              if [ -f "$PATH_INPUT" ]; then
+                BASE_VERSION=$(grep -m1 '"version"' "$PATH_INPUT" | sed 's/.*"version": "\(.*\)".*/\1/')
+              else
+                echo "::warning::package.json not found at $PATH_INPUT, using 0.1.0"
+                BASE_VERSION="0.1.0"
+              fi
+              ;;
+            *)
+              echo "::error::Unknown source type: $SOURCE"
+              exit 1
+              ;;
+          esac
+
+          VERSION="${BASE_VERSION}-dev-$(git rev-parse --short HEAD)"
+        fi
+
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+        echo "is_tag=${IS_TAG}" >> $GITHUB_OUTPUT
+
+        echo "Version: ${VERSION}"
+        echo "Base Version: ${BASE_VERSION}"
+        echo "Is Tag: ${IS_TAG}"

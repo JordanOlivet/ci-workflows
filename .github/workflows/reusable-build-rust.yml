@@ -1,0 +1,77 @@
+name: Reusable Rust Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version number'
+        required: true
+        type: string
+      platforms:
+        description: 'JSON array of platform configs'
+        required: true
+        type: string
+      cargo-flags:
+        description: 'Additional cargo build flags'
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: 'Working directory for cargo commands'
+        required: false
+        type: string
+        default: '.'
+
+    outputs:
+      artifacts:
+        description: 'JSON array of artifact names'
+        value: ${{ jobs.build.outputs.artifacts }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(inputs.platforms) }}
+
+    outputs:
+      artifacts: ${{ steps.artifacts.outputs.list }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+          workspaces: ${{ inputs.working-directory }}
+
+      - name: Build release binary
+        working-directory: ${{ inputs.working-directory }}
+        run: cargo build --release --target ${{ matrix.target }} ${{ inputs.cargo-flags }}
+
+      - name: Rename binary
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} ${{ matrix.asset }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ inputs.working-directory }}/${{ matrix.asset }}
+
+      - name: Output artifact list
+        id: artifacts
+        shell: bash
+        run: |
+          echo "list=${{ matrix.asset }}" >> $GITHUB_OUTPUT

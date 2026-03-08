@@ -1,0 +1,159 @@
+name: Reusable Release
+
+on:
+  workflow_call:
+    inputs:
+      version-source:
+        description: 'Version source: file, cargo, or npm'
+        required: false
+        type: string
+        default: 'file'
+      version-file:
+        description: 'Path to version file'
+        required: false
+        type: string
+        default: 'VERSION'
+      changelog:
+        description: 'Generate and update CHANGELOG.md'
+        required: false
+        type: boolean
+        default: true
+      commit-version:
+        description: 'Commit version file changes'
+        required: false
+        type: boolean
+        default: true
+
+    outputs:
+      version:
+        description: 'New version number'
+        value: ${{ jobs.release.outputs.version }}
+      tag:
+        description: 'Git tag (v-prefixed)'
+        value: ${{ jobs.release.outputs.tag }}
+      should_release:
+        description: 'Whether a release should be created'
+        value: ${{ jobs.release.outputs.should_release }}
+
+jobs:
+  release:
+    name: Version & Tag
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.merged == true &&
+      (contains(github.event.pull_request.labels.*.name, 'release-major') ||
+       contains(github.event.pull_request.labels.*.name, 'release-minor') ||
+       contains(github.event.pull_request.labels.*.name, 'release-patch'))
+
+    outputs:
+      version: ${{ steps.calc.outputs.new_version }}
+      tag: ${{ steps.calc.outputs.tag }}
+      should_release: ${{ steps.bump.outputs.should_release }}
+
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract current version
+        id: extract
+        uses: Lakio/ci-workflows/actions/extract-version@v1
+        with:
+          source: ${{ inputs.version-source }}
+          path: ${{ inputs.version-file }}
+
+      - name: Determine bump type
+        id: bump
+        uses: Lakio/ci-workflows/actions/determine-bump@v1
+        with:
+          labels: ${{ toJson(github.event.pull_request.labels.*.name) }}
+
+      - name: Calculate new version
+        id: calc
+        uses: Lakio/ci-workflows/actions/calculate-version@v1
+        with:
+          current: ${{ steps.extract.outputs.base_version }}
+          bump_type: ${{ steps.bump.outputs.bump_type }}
+
+      - name: Update version file
+        if: inputs.commit-version
+        uses: Lakio/ci-workflows/actions/update-version-file@v1
+        with:
+          source: ${{ inputs.version-source }}
+          path: ${{ inputs.version-file }}
+          version: ${{ steps.calc.outputs.new_version }}
+
+      - name: Commit version bump
+        if: inputs.commit-version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ inputs.version-file }}
+          git commit -m "chore: bump version to ${{ steps.calc.outputs.tag }} [skip ci]" || echo "No changes to commit"
+          git push origin ${{ github.event.pull_request.base.ref }} || echo "No changes to push"
+
+      - name: Create Git tag
+        run: |
+          git tag ${{ steps.calc.outputs.tag }}
+          git push origin ${{ steps.calc.outputs.tag }}
+
+      - name: Generate changelog
+        if: inputs.changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git tag --sort=-creatordate | sed -n '2p')
+          if [ -z "$PREVIOUS_TAG" ]; then
+            PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          echo "Generating changelog from $PREVIOUS_TAG to ${{ steps.calc.outputs.tag }}"
+
+          # Generate changelog content
+          {
+            echo "## Changes in ${{ steps.calc.outputs.tag }}"
+            echo ""
+            echo "**Merged Pull Requests:**"
+            echo "- ${{ github.event.pull_request.title }} (#${{ github.event.pull_request.number }})"
+            echo ""
+            echo "**Commits:**"
+            git log --pretty=format:"- %s (%h)" ${PREVIOUS_TAG}..${{ steps.calc.outputs.tag }} 2>/dev/null || echo "- Initial release"
+            echo ""
+          } > RELEASE_NOTES.md
+
+          # Update CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            {
+              cat RELEASE_NOTES.md
+              echo ""
+              cat CHANGELOG.md
+            } > CHANGELOG.tmp
+            mv CHANGELOG.tmp CHANGELOG.md
+          else
+            {
+              echo "# Changelog"
+              echo ""
+              echo "All notable changes to this project will be documented in this file."
+              echo ""
+              cat RELEASE_NOTES.md
+            } > CHANGELOG.md
+          fi
+
+          # Commit CHANGELOG
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG for ${{ steps.calc.outputs.tag }} [skip ci]" || echo "No changes to commit"
+          git push origin ${{ github.event.pull_request.base.ref }} || echo "No changes to push"
+
+      - name: Summary
+        run: |
+          echo "### Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.calc.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ steps.calc.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bump Type:** ${{ steps.bump.outputs.bump_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**PR:** #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
