@@ -7,6 +7,11 @@ on:
         description: 'JSON array of PR label names'
         required: true
         type: string
+      default:
+        description: 'Default bump type when no label found (none = no release)'
+        required: false
+        type: string
+        default: 'none'
 
     outputs:
       bump_type:
@@ -43,7 +48,13 @@ jobs:
             echo "should_release=true" >> $GITHUB_OUTPUT
             echo "Bump type: PATCH"
           else
-            echo "bump_type=none" >> $GITHUB_OUTPUT
-            echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "No release label found"
+            DEFAULT="${{ inputs.default }}"
+            echo "bump_type=$DEFAULT" >> $GITHUB_OUTPUT
+            if [ "$DEFAULT" = "none" ]; then
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              echo "No release label found"
+            else
+              echo "should_release=true" >> $GITHUB_OUTPUT
+              echo "No release label found, using default: $DEFAULT"
+            fi
           fi
