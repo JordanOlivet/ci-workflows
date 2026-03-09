@@ -27,28 +27,45 @@ on:
     outputs:
       version:
         description: 'New version number'
-        value: ${{ jobs.release.outputs.version }}
+        value: ${{ jobs.tag-release.outputs.version }}
       tag:
         description: 'Git tag (v-prefixed)'
-        value: ${{ jobs.release.outputs.tag }}
+        value: ${{ jobs.tag-release.outputs.tag }}
       should_release:
         description: 'Whether a release should be created'
-        value: ${{ jobs.release.outputs.should_release }}
+        value: ${{ jobs.determine-bump.outputs.should_release }}
 
 jobs:
-  release:
-    name: Version & Tag
-    runs-on: ubuntu-latest
-    if: |
-      github.event.pull_request.merged == true &&
-      (contains(github.event.pull_request.labels.*.name, 'release-major') ||
-       contains(github.event.pull_request.labels.*.name, 'release-minor') ||
-       contains(github.event.pull_request.labels.*.name, 'release-patch'))
+  extract-version:
+    name: Extract Version
+    uses: JordanOlivet/ci-workflows/.github/workflows/extract-version.yml@v1
+    with:
+      source: ${{ inputs.version-source }}
+      path: ${{ inputs.version-file }}
 
+  determine-bump:
+    name: Determine Bump
+    uses: JordanOlivet/ci-workflows/.github/workflows/determine-bump.yml@v1
+    with:
+      labels: ${{ toJson(github.event.pull_request.labels.*.name) }}
+
+  calculate-version:
+    name: Calculate Version
+    needs: [extract-version, determine-bump]
+    if: needs.determine-bump.outputs.should_release == 'true'
+    uses: JordanOlivet/ci-workflows/.github/workflows/calculate-version.yml@v1
+    with:
+      current: ${{ needs.extract-version.outputs.base_version }}
+      bump_type: ${{ needs.determine-bump.outputs.bump_type }}
+
+  tag-release:
+    name: Tag & Release
+    needs: [extract-version, determine-bump, calculate-version]
+    if: needs.determine-bump.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.calc.outputs.new_version }}
-      tag: ${{ steps.calc.outputs.tag }}
-      should_release: ${{ steps.bump.outputs.should_release }}
+      version: ${{ needs.calculate-version.outputs.new_version }}
+      tag: ${{ needs.calculate-version.outputs.tag }}
 
     permissions:
       contents: write
@@ -61,33 +78,29 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract current version
-        id: extract
-        uses: JordanOlivet/ci-workflows/actions/extract-version@v1
-        with:
-          source: ${{ inputs.version-source }}
-          path: ${{ inputs.version-file }}
-
-      - name: Determine bump type
-        id: bump
-        uses: JordanOlivet/ci-workflows/actions/determine-bump@v1
-        with:
-          labels: ${{ toJson(github.event.pull_request.labels.*.name) }}
-
-      - name: Calculate new version
-        id: calc
-        uses: JordanOlivet/ci-workflows/actions/calculate-version@v1
-        with:
-          current: ${{ steps.extract.outputs.base_version }}
-          bump_type: ${{ steps.bump.outputs.bump_type }}
-
       - name: Update version file
         if: inputs.commit-version
-        uses: JordanOlivet/ci-workflows/actions/update-version-file@v1
-        with:
-          source: ${{ inputs.version-source }}
-          path: ${{ inputs.version-file }}
-          version: ${{ steps.calc.outputs.new_version }}
+        run: |
+          SOURCE="${{ inputs.version-source }}"
+          PATH_INPUT="${{ inputs.version-file }}"
+          VERSION="${{ needs.calculate-version.outputs.new_version }}"
+
+          case "$SOURCE" in
+            file)
+              echo "$VERSION" > "$PATH_INPUT"
+              ;;
+            cargo)
+              sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$PATH_INPUT"
+              ;;
+            npm)
+              if command -v jq &> /dev/null; then
+                jq --arg v "$VERSION" '.version = $v' "$PATH_INPUT" > tmp.json && mv tmp.json "$PATH_INPUT"
+              else
+                sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$PATH_INPUT"
+              fi
+              ;;
+          esac
+          echo "Updated $PATH_INPUT to version $VERSION"
 
       - name: Commit version bump
         if: inputs.commit-version
@@ -95,34 +108,36 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ${{ inputs.version-file }}
-          git commit -m "chore: bump version to ${{ steps.calc.outputs.tag }} [skip ci]" || echo "No changes to commit"
+          git commit -m "chore: bump version to ${{ needs.calculate-version.outputs.tag }} [skip ci]" || echo "No changes to commit"
           git push origin ${{ github.event.pull_request.base.ref }} || echo "No changes to push"
 
       - name: Create Git tag
         run: |
-          git tag ${{ steps.calc.outputs.tag }}
-          git push origin ${{ steps.calc.outputs.tag }}
+          git tag ${{ needs.calculate-version.outputs.tag }}
+          git push origin ${{ needs.calculate-version.outputs.tag }}
 
       - name: Generate changelog
         if: inputs.changelog
         run: |
+          TAG="${{ needs.calculate-version.outputs.tag }}"
+
           # Get the previous tag
           PREVIOUS_TAG=$(git tag --sort=-creatordate | sed -n '2p')
           if [ -z "$PREVIOUS_TAG" ]; then
             PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
           fi
 
-          echo "Generating changelog from $PREVIOUS_TAG to ${{ steps.calc.outputs.tag }}"
+          echo "Generating changelog from $PREVIOUS_TAG to $TAG"
 
           # Generate changelog content
           {
-            echo "## Changes in ${{ steps.calc.outputs.tag }}"
+            echo "## Changes in $TAG"
             echo ""
             echo "**Merged Pull Requests:**"
             echo "- ${{ github.event.pull_request.title }} (#${{ github.event.pull_request.number }})"
             echo ""
             echo "**Commits:**"
-            git log --pretty=format:"- %s (%h)" ${PREVIOUS_TAG}..${{ steps.calc.outputs.tag }} 2>/dev/null || echo "- Initial release"
+            git log --pretty=format:"- %s (%h)" ${PREVIOUS_TAG}..$TAG 2>/dev/null || echo "- Initial release"
             echo ""
           } > RELEASE_NOTES.md
 
@@ -146,14 +161,14 @@ jobs:
 
           # Commit CHANGELOG
           git add CHANGELOG.md
-          git commit -m "docs: update CHANGELOG for ${{ steps.calc.outputs.tag }} [skip ci]" || echo "No changes to commit"
+          git commit -m "docs: update CHANGELOG for $TAG [skip ci]" || echo "No changes to commit"
           git push origin ${{ github.event.pull_request.base.ref }} || echo "No changes to push"
 
       - name: Summary
         run: |
           echo "### Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ steps.calc.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag:** ${{ steps.calc.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Bump Type:** ${{ steps.bump.outputs.bump_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.calculate-version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ needs.calculate-version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bump Type:** ${{ needs.determine-bump.outputs.bump_type }}" >> $GITHUB_STEP_SUMMARY
           echo "**PR:** #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY

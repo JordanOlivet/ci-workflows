@@ -1,0 +1,121 @@
+name: Extract Version
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: 'Version source: file, cargo, or npm'
+        required: false
+        type: string
+        default: 'file'
+      path:
+        description: 'Path to version file'
+        required: false
+        type: string
+        default: 'VERSION'
+
+    outputs:
+      version:
+        description: 'Current version (may include -dev suffix for non-tag builds)'
+        value: ${{ jobs.extract.outputs.version }}
+      base_version:
+        description: 'Base version without dev suffix'
+        value: ${{ jobs.extract.outputs.base_version }}
+      is_tag:
+        description: 'Whether this is a tag build'
+        value: ${{ jobs.extract.outputs.is_tag }}
+      assembly_version:
+        description: 'Assembly version (for .NET)'
+        value: ${{ jobs.extract.outputs.assembly_version }}
+      build_date:
+        description: 'Build timestamp'
+        value: ${{ jobs.extract.outputs.build_date }}
+      vcs_ref:
+        description: 'Git commit short hash'
+        value: ${{ jobs.extract.outputs.vcs_ref }}
+
+jobs:
+  extract:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      base_version: ${{ steps.extract.outputs.base_version }}
+      is_tag: ${{ steps.extract.outputs.is_tag }}
+      assembly_version: ${{ steps.extract.outputs.assembly_version }}
+      build_date: ${{ steps.extract.outputs.build_date }}
+      vcs_ref: ${{ steps.extract.outputs.vcs_ref }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: extract
+        run: |
+          SOURCE="${{ inputs.source }}"
+          PATH_INPUT="${{ inputs.path }}"
+
+          # Check if we're on a tag
+          if git describe --tags --exact-match 2>/dev/null; then
+            BASE_VERSION=$(git describe --tags --exact-match | sed 's/^v//')
+            VERSION="${BASE_VERSION}"
+            IS_TAG="true"
+          else
+            IS_TAG="false"
+
+            # Extract version based on source type
+            case "$SOURCE" in
+              file)
+                if [ -f "$PATH_INPUT" ]; then
+                  BASE_VERSION=$(cat "$PATH_INPUT" | tr -d '\n\r' | sed 's/^v//')
+                else
+                  echo "::warning::VERSION file not found at $PATH_INPUT, using 0.1.0"
+                  BASE_VERSION="0.1.0"
+                fi
+                ;;
+              cargo)
+                if [ -f "$PATH_INPUT" ]; then
+                  BASE_VERSION=$(grep -m1 '^version = ' "$PATH_INPUT" | sed 's/version = "\(.*\)"/\1/')
+                else
+                  echo "::warning::Cargo.toml not found at $PATH_INPUT, using 0.1.0"
+                  BASE_VERSION="0.1.0"
+                fi
+                ;;
+              npm)
+                if [ -f "$PATH_INPUT" ]; then
+                  BASE_VERSION=$(grep -m1 '"version"' "$PATH_INPUT" | sed 's/.*"version": "\(.*\)".*/\1/')
+                else
+                  echo "::warning::package.json not found at $PATH_INPUT, using 0.1.0"
+                  BASE_VERSION="0.1.0"
+                fi
+                ;;
+              *)
+                echo "::error::Unknown source type: $SOURCE"
+                exit 1
+                ;;
+            esac
+
+            VERSION="${BASE_VERSION}-dev-$(git rev-parse --short HEAD)"
+          fi
+
+          # Assembly version for .NET (needs 4 parts)
+          ASSEMBLY_VERSION="${BASE_VERSION}.0"
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VCS_REF=$(git rev-parse --short HEAD)
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+          echo "is_tag=${IS_TAG}" >> $GITHUB_OUTPUT
+          echo "assembly_version=${ASSEMBLY_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "vcs_ref=${VCS_REF}" >> $GITHUB_OUTPUT
+
+          echo "Version: ${VERSION}"
+          echo "Base Version: ${BASE_VERSION}"
+          echo "Is Tag: ${IS_TAG}"
+          echo "Assembly Version: ${ASSEMBLY_VERSION}"
+          echo "Build Date: ${BUILD_DATE}"
+          echo "VCS Ref: ${VCS_REF}"
