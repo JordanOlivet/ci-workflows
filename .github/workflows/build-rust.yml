@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: '.'
+      ref:
+        description: 'Git ref (tag, branch, or SHA) to checkout. Defaults to the caller workflow ref.'
+        required: false
+        type: string
+        default: ''
 
     outputs:
       artifacts:
@@ -42,6 +47,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
