@@ -113,8 +113,16 @@ jobs:
 
       - name: Create Git tag
         run: |
-          git tag ${{ needs.calculate-version.outputs.tag }}
-          git push origin ${{ needs.calculate-version.outputs.tag }}
+          TAG="${{ needs.calculate-version.outputs.tag }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          # Move floating major-version tag (e.g. v1) to point at this release
+          MAJOR="${TAG%%.*}"
+          if [ "$MAJOR" != "$TAG" ] && [[ "$MAJOR" =~ ^v[0-9]+$ ]]; then
+            git tag -f "$MAJOR" "$TAG"
+            git push -f origin "$MAJOR"
+          fi
 
       - name: Generate changelog
         if: inputs.changelog
