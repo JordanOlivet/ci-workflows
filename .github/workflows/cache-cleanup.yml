@@ -1,0 +1,46 @@
+name: Reusable Cache Cleanup
+
+on:
+  workflow_call:
+    inputs:
+      threshold-gb:
+        description: 'Purge when total cache exceeds this many GB'
+        required: false
+        type: number
+        default: 9
+
+jobs:
+  cleanup:
+    name: Prune GitHub Actions Cache
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # required to delete caches
+      contents: read
+    steps:
+      - name: Prune oldest caches over threshold
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          THRESHOLD_GB: ${{ inputs.threshold-gb }}
+        run: |
+          set -euo pipefail
+          THRESHOLD_BYTES=$(( THRESHOLD_GB * 1024 * 1024 * 1024 ))
+          TOTAL=$(gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" \
+            --jq '.active_caches_size_in_bytes')
+          echo "Current cache usage: ${TOTAL} bytes (threshold ${THRESHOLD_BYTES})"
+          if [ "$TOTAL" -le "$THRESHOLD_BYTES" ]; then
+            echo "Under threshold, nothing to do."
+            exit 0
+          fi
+          TO_FREE=$(( TOTAL - THRESHOLD_BYTES ))
+          echo "Need to free ${TO_FREE} bytes."
+          FREED=0
+          while IFS=$'\t' read -r ID SIZE; do
+            [ -z "$ID" ] && continue
+            if [ "$FREED" -ge "$TO_FREE" ]; then break; fi
+            echo "Deleting cache ${ID} (${SIZE} bytes)"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches/${ID}"
+            FREED=$(( FREED + SIZE ))
+          done < <(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/caches?per_page=100&sort=last_accessed_at&direction=asc" \
+            --jq '.actions_caches[] | "\(.id)\t\(.size_in_bytes)"')
+          echo "Freed approximately ${FREED} bytes."
