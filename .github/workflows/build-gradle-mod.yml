@@ -1,0 +1,65 @@
+name: Reusable Gradle Mod Build
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: 'Directory of the mod Gradle build (e.g. mods/industry)'
+        required: true
+        type: string
+      java-version:
+        description: 'JDK version used to run Gradle'
+        required: false
+        type: string
+        default: '21'
+      gradle-tasks:
+        description: 'Gradle tasks to run'
+        required: false
+        type: string
+        default: 'build'
+      artifact-name:
+        description: 'Name of the uploaded artifact bundle'
+        required: false
+        type: string
+        default: 'mod-jars'
+      ref:
+        description: 'Git ref (tag, branch, or SHA) to checkout. Defaults to the caller workflow ref.'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    name: Build mod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          chmod +x gradlew
+          ./gradlew ${{ inputs.gradle-tasks }} --no-daemon
+
+      - name: Upload jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ inputs.working-directory }}/*/build/libs/*.jar
+            !${{ inputs.working-directory }}/*/build/libs/*-sources.jar
+            !${{ inputs.working-directory }}/*/build/libs/*-javadoc.jar
+          if-no-files-found: error
