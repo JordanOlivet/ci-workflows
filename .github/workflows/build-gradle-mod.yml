@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: 'mod-jars'
+      artifact-retention-days:
+        description: 'Days to keep uploaded jars (short to protect storage quota)'
+        required: false
+        type: number
+        default: 7
       ref:
         description: 'Git ref (tag, branch, or SHA) to checkout. Defaults to the caller workflow ref.'
         required: false
@@ -47,6 +52,11 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          # Only the default branch writes the cache; branch/PR runs read it.
+          # Prevents per-branch cache buildup from saturating the 10GB repo cache quota.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-cleanup: on-success
 
       - name: Build
         working-directory: ${{ inputs.working-directory }}
@@ -63,3 +73,4 @@ jobs:
             !${{ inputs.working-directory }}/*/build/libs/*-sources.jar
             !${{ inputs.working-directory }}/*/build/libs/*-javadoc.jar
           if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
