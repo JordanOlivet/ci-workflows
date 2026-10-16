@@ -10,6 +10,7 @@ This repository provides reusable GitHub Actions workflows and composite actions
 - **Multi-platform builds**: Rust, .NET, Node.js
 - **Docker builds**: Push to GitHub Container Registry
 - **GitHub Releases**: Automated release creation with artifacts
+- **Minecraft mods**: Gradle builds and Modrinth / CurseForge publishing
 
 ## Usage
 
@@ -135,6 +136,46 @@ jobs:
       artifacts-path: artifacts
     secrets: inherit
 ```
+
+#### publish-mod.yml
+
+Build a Gradle Minecraft mod at a release tag, publish one jar per loader to
+Modrinth and CurseForge ([mc-publish](https://github.com/Kir-Antipov/mc-publish)),
+and attach the jars to a GitHub Release. The tag gives the version
+(`v0.1.0-alpha.1` builds with `-Pversion=0.1.0-alpha.1`); its core must match
+`version=` in `gradle.properties`. The version type follows the pre-release
+label (`alpha`, `beta`/`rc`, none: `release`).
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+    uses: JordanOlivet/ci-workflows/.github/workflows/publish-mod.yml@v1
+    with:
+      tag: ${{ github.ref_name }}
+      mod-name: MyMod
+      game-versions: 1.21.1
+      modrinth-id: ${{ vars.MODRINTH_ID }}
+      curseforge-id: ${{ vars.CURSEFORGE_ID }}
+      targets: >-
+        [{"loader":"neoforge","label":"NeoForge","files":"neoforge/build/libs/mymod-neoforge-*.jar"},
+         {"loader":"fabric","label":"Fabric","files":"fabric/build/libs/mymod-fabric-*.jar"}]
+    secrets:
+      modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+      curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+```
+
+**Inputs:** `tag`, `mod-name`, `targets` (JSON: `loader`, `label`, `files` glob
+relative to `working-directory`), `game-versions` (required); `java-versions`
+(`21`), `working-directory` (`.`), `version-file` (`gradle.properties`),
+`java-version` (`21`), `modrinth-id` and `curseforge-id` (empty skips the
+platform), `github-release` (`true`).
 
 ### Composite Actions
 

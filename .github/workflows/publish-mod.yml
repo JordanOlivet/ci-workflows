@@ -1,0 +1,219 @@
+name: Reusable Mod Publish
+
+# Builds a Gradle Minecraft mod at a release tag and publishes one jar per
+# loader to Modrinth and CurseForge (Kir-Antipov/mc-publish), then attaches
+# them all to a GitHub Release. Meant for a caller triggered by a pushed tag:
+#
+#   on:
+#     push:
+#       tags: ['v*']
+#
+# The tag gives the version (v0.1.0-alpha.1 -> 0.1.0-alpha.1), passed to
+# Gradle as -Pversion so the jars and their metadata carry it. Its core
+# (0.1.0) must match `version=` in the version file, so a forgotten bump
+# fails before anything is published. The version type follows the
+# pre-release label: alpha, beta (beta, rc) or release.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag, v-prefixed (usually github.ref_name)'
+        required: true
+        type: string
+      mod-name:
+        description: 'Display name of the mod, used in version names'
+        required: true
+        type: string
+      targets:
+        description: >-
+          JSON array, one entry per jar: loader (Modrinth/CurseForge loader id),
+          label (shown in the version name), files (glob relative to working-directory)
+        required: true
+        type: string
+      game-versions:
+        description: 'Supported Minecraft versions, one per line'
+        required: true
+        type: string
+      java-versions:
+        description: 'Supported Java versions, one per line'
+        required: false
+        type: string
+        default: '21'
+      working-directory:
+        description: 'Directory of the Gradle build'
+        required: false
+        type: string
+        default: '.'
+      version-file:
+        description: 'Properties file holding version=, relative to working-directory'
+        required: false
+        type: string
+        default: 'gradle.properties'
+      java-version:
+        description: 'JDK version used to run Gradle'
+        required: false
+        type: string
+        default: '21'
+      modrinth-id:
+        description: 'Modrinth project id or slug; empty skips Modrinth'
+        required: false
+        type: string
+        default: ''
+      curseforge-id:
+        description: 'CurseForge project id; empty skips CurseForge'
+        required: false
+        type: string
+        default: ''
+      github-release:
+        description: 'Create a GitHub Release with every jar'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      modrinth-token:
+        required: false
+      curseforge-token:
+        required: false
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version-type: ${{ steps.version.outputs.type }}
+      changelog: ${{ steps.changelog.outputs.text }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Version from the tag
+        id: version
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $TAG is not v<major>.<minor>.<patch>[-<pre-release>]"
+            exit 1
+          fi
+          CORE="${VERSION%%-*}"
+          FILE_VERSION=$(grep -E '^version=' "${{ inputs.version-file }}" | head -1 | cut -d= -f2 | tr -d '[:space:]')
+          if [ "$CORE" != "$FILE_VERSION" ]; then
+            echo "::error::Tag $TAG does not match version=$FILE_VERSION in ${{ inputs.version-file }}"
+            exit 1
+          fi
+          case "$VERSION" in
+            *-alpha*) TYPE=alpha ;;
+            *-beta*|*-rc*) TYPE=beta ;;
+            *-*) TYPE=alpha ;;
+            *) TYPE=release ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "Version $VERSION ($TYPE)"
+
+      - name: Changelog since the previous tag
+        id: changelog
+        run: |
+          PREVIOUS=$(git describe --tags --abbrev=0 "${{ inputs.tag }}^" 2>/dev/null || true)
+          if [ -n "$PREVIOUS" ]; then
+            RANGE="$PREVIOUS..${{ inputs.tag }}"
+            HEADER="Changes since $PREVIOUS:"
+          else
+            RANGE="${{ inputs.tag }}"
+            HEADER="Changes:"
+          fi
+          {
+            echo "text<<CHANGELOG_EOF"
+            echo "$HEADER"
+            echo
+            git log --no-merges --pretty='- %s' "$RANGE" | grep -vE '^- (docs|chore|ci|test)(\(.*\))?: ' || true
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: prepare
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-gradle-mod.yml@v1
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      java-version: ${{ inputs.java-version }}
+      gradle-tasks: build -Pversion=${{ needs.prepare.outputs.version }}
+      artifact-name: release-jars
+      ref: ${{ inputs.tag }}
+
+  publish:
+    name: Publish ${{ matrix.target.label }}
+    needs: [prepare, build]
+    if: inputs.modrinth-id != '' || inputs.curseforge-id != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(inputs.targets) }}
+    steps:
+      - name: Download jars
+        uses: actions/download-artifact@v4
+        with:
+          name: release-jars
+          path: jars
+
+      - name: Publish to Modrinth and CurseForge
+        uses: Kir-Antipov/mc-publish@v3.3.1
+        with:
+          modrinth-id: ${{ inputs.modrinth-id }}
+          modrinth-token: ${{ secrets.modrinth-token }}
+          curseforge-id: ${{ inputs.curseforge-id }}
+          curseforge-token: ${{ secrets.curseforge-token }}
+          files: jars/${{ matrix.target.files }}
+          name: ${{ inputs.mod-name }} ${{ needs.prepare.outputs.version }} ${{ matrix.target.label }}
+          # One version per loader: the loader suffix keeps Modrinth version numbers unique.
+          version: ${{ needs.prepare.outputs.version }}+${{ matrix.target.loader }}
+          version-type: ${{ needs.prepare.outputs.version-type }}
+          changelog: ${{ needs.prepare.outputs.changelog }}
+          loaders: ${{ matrix.target.loader }}
+          game-versions: ${{ inputs.game-versions }}
+          java: ${{ inputs.java-versions }}
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, build]
+    if: inputs.github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download jars
+        uses: actions/download-artifact@v4
+        with:
+          name: release-jars
+          path: jars
+
+      - name: Select the target jars
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          mkdir -p release
+          echo "$TARGETS" | jq -r '.[].files' | while read -r glob; do
+            for f in jars/$glob; do
+              [ -f "$f" ] && cp "$f" release/
+            done
+          done
+          ls -l release
+          [ -n "$(ls -A release)" ] || { echo "::error::No jar matched the targets"; exit 1; }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.mod-name }} ${{ needs.prepare.outputs.version }}
+          prerelease: ${{ needs.prepare.outputs.version-type != 'release' }}
+          body: ${{ needs.prepare.outputs.changelog }}
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
