@@ -13,6 +13,11 @@ name: Reusable Mod Publish
 # (0.1.0) must match `version=` in the version file, so a forgotten bump
 # fails before anything is published. The version type follows the
 # pre-release label: alpha, beta (beta, rc) or release.
+#
+# Several Minecraft versions: give each target its own game-versions (and
+# java-versions), and a version-suffix that keeps Modrinth version numbers
+# unique (the suffix defaults to the loader, which is enough with one jar
+# per loader).
 
 on:
   workflow_call:
@@ -28,13 +33,16 @@ on:
       targets:
         description: >-
           JSON array, one entry per jar: loader (Modrinth/CurseForge loader id),
-          label (shown in the version name), files (glob relative to working-directory)
+          label (shown in the version name), files (glob relative to working-directory);
+          optional: game-versions and java-versions (override the inputs of the same
+          name, one per line), version-suffix (after the version's +, default the loader)
         required: true
         type: string
       game-versions:
-        description: 'Supported Minecraft versions, one per line'
-        required: true
+        description: 'Supported Minecraft versions, one per line; every target without its own'
+        required: false
         type: string
+        default: ''
       java-versions:
         description: 'Supported Java versions, one per line'
         required: false
@@ -117,6 +125,32 @@ jobs:
           echo "type=$TYPE" >> "$GITHUB_OUTPUT"
           echo "Version $VERSION ($TYPE)"
 
+      - name: Check the targets
+        env:
+          TARGETS: ${{ inputs.targets }}
+          GAME_VERSIONS: ${{ inputs.game-versions }}
+        run: |
+          echo "$TARGETS" | jq -e 'type == "array" and length > 0' > /dev/null             || { echo "::error::targets is not a non-empty JSON array"; exit 1; }
+          MISSING=$(echo "$TARGETS" | jq -r '.[] | select((.loader // "") == "" or (.label // "") == "" or (.files // "") == "") | tostring')
+          if [ -n "$MISSING" ]; then
+            echo "::error::Targets without loader, label or files: $MISSING"
+            exit 1
+          fi
+          if [ -z "$GAME_VERSIONS" ]; then
+            NOVERSIONS=$(echo "$TARGETS" | jq -r '.[] | select((."game-versions" // "") == "") | .label')
+            if [ -n "$NOVERSIONS" ]; then
+              echo "::error::No game-versions input, and these targets have none: $NOVERSIONS"
+              exit 1
+            fi
+          fi
+          # Modrinth refuses two versions with one version number: one suffix per target.
+          DUPLICATES=$(echo "$TARGETS" | jq -r '[.[] | (."version-suffix" // .loader)] | group_by(.) | map(select(length > 1) | .[0]) | .[]')
+          if [ -n "$DUPLICATES" ]; then
+            echo "::error::Targets share a version suffix ($DUPLICATES): give each a version-suffix"
+            exit 1
+          fi
+          echo "$TARGETS" | jq -r '.[] | "\(.label): +\(."version-suffix" // .loader), game versions \(."game-versions" // "(input)")"'
+
       - name: Changelog since the previous tag
         id: changelog
         run: |
@@ -172,13 +206,13 @@ jobs:
           curseforge-token: ${{ secrets.curseforge-token }}
           files: jars/${{ matrix.target.files }}
           name: ${{ inputs.mod-name }} ${{ needs.prepare.outputs.version }} ${{ matrix.target.label }}
-          # One version per loader: the loader suffix keeps Modrinth version numbers unique.
-          version: ${{ needs.prepare.outputs.version }}+${{ matrix.target.loader }}
+          # One version number per target: its suffix (the loader by default) keeps them unique.
+          version: ${{ needs.prepare.outputs.version }}+${{ matrix.target.version-suffix || matrix.target.loader }}
           version-type: ${{ needs.prepare.outputs.version-type }}
           changelog: ${{ needs.prepare.outputs.changelog }}
           loaders: ${{ matrix.target.loader }}
-          game-versions: ${{ inputs.game-versions }}
-          java: ${{ inputs.java-versions }}
+          game-versions: ${{ matrix.target.game-versions || inputs.game-versions }}
+          java: ${{ matrix.target.java-versions || inputs.java-versions }}
 
   github-release:
     name: GitHub Release

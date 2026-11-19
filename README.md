@@ -172,10 +172,25 @@ jobs:
 ```
 
 **Inputs:** `tag`, `mod-name`, `targets` (JSON: `loader`, `label`, `files` glob
-relative to `working-directory`), `game-versions` (required); `java-versions`
-(`21`), `working-directory` (`.`), `version-file` (`gradle.properties`),
-`java-version` (`21`), `modrinth-id` and `curseforge-id` (empty skips the
-platform), `github-release` (`true`).
+relative to `working-directory`), `game-versions` (every target without its
+own); `java-versions` (`21`), `working-directory` (`.`), `version-file`
+(`gradle.properties`), `java-version` (`21`), `modrinth-id` and
+`curseforge-id` (empty skips the platform), `github-release` (`true`).
+
+Several Minecraft versions: a target may carry its own `game-versions` and
+`java-versions` (one per line, `
+` in JSON; they override the inputs) and a
+`version-suffix`, the part after the version's `+` (default: the loader).
+Modrinth refuses two versions with one number, so targets of one loader need
+distinct suffixes; the workflow checks it before building.
+
+```yaml
+      targets: >-
+        [{"loader":"neoforge","label":"NeoForge 1.21.1","files":"neoforge/build/libs/mymod-neoforge-1.21.1-*.jar",
+          "game-versions":"1.21.1","version-suffix":"neoforge-1.21.1"},
+         {"loader":"neoforge","label":"NeoForge 1.21.11","files":"neoforge/build/libs/mymod-neoforge-1.21.11-*.jar",
+          "game-versions":"1.21.11","version-suffix":"neoforge-1.21.11"}]
+```
 
 ### Composite Actions
 
