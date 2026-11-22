@@ -175,7 +175,8 @@ jobs:
 relative to `working-directory`), `game-versions` (every target without its
 own); `java-versions` (`21`), `working-directory` (`.`), `version-file`
 (`gradle.properties`), `java-version` (`21`), `modrinth-id` and
-`curseforge-id` (empty skips the platform), `github-release` (`true`).
+`curseforge-id` (empty skips the platform), `github-release` (`true`),
+`tag-prefix` and `changelog-paths` (empty; see below).
 
 Several Minecraft versions: a target may carry its own `game-versions` and
 `java-versions` (one per line, `
@@ -190,6 +191,24 @@ distinct suffixes; the workflow checks it before building.
           "game-versions":"1.21.1","version-suffix":"neoforge-1.21.1"},
          {"loader":"neoforge","label":"NeoForge 1.21.11","files":"neoforge/build/libs/mymod-neoforge-1.21.11-*.jar",
           "game-versions":"1.21.11","version-suffix":"neoforge-1.21.11"}]
+```
+
+Several mods in one repository: give each caller a `tag-prefix` (what stands
+before the `v`: `industry/` for the tag `industry/v0.1.0`), its
+`working-directory`, and `changelog-paths` (space-separated, relative to the
+repository root) so the changelog keeps to that mod's commits. The previous
+tag of the changelog is the previous one with the same prefix.
+
+```yaml
+on:
+  push:
+    tags: ['industry/v*']
+# ...
+    with:
+      tag: ${{ github.ref_name }}
+      tag-prefix: industry/
+      working-directory: mods/industry
+      changelog-paths: mods/industry libs/core
 ```
 
 ### Composite Actions

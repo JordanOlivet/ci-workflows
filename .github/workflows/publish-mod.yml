@@ -23,9 +23,24 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Release tag, v-prefixed (usually github.ref_name)'
+        description: 'Release tag, [<tag-prefix>]v<version> (usually github.ref_name)'
         required: true
         type: string
+      tag-prefix:
+        description: >-
+          What stands before the v in the tag, for a repository releasing several
+          mods (industry/ for industry/v0.1.0). The previous tag of the changelog
+          is then the previous one with this prefix.
+        required: false
+        type: string
+        default: ''
+      changelog-paths:
+        description: >-
+          Paths (space-separated, relative to the repository root) whose commits
+          make the changelog; empty takes every commit
+        required: false
+        type: string
+        default: ''
       mod-name:
         description: 'Display name of the mod, used in version names'
         required: true
@@ -102,11 +117,17 @@ jobs:
       - name: Version from the tag
         id: version
         working-directory: ${{ inputs.working-directory }}
+        env:
+          TAG: ${{ inputs.tag }}
+          PREFIX: ${{ inputs.tag-prefix }}
         run: |
-          TAG="${{ inputs.tag }}"
-          VERSION="${TAG#v}"
+          if [[ "$TAG" != "${PREFIX}v"* ]]; then
+            echo "::error::Tag $TAG does not start with ${PREFIX}v"
+            exit 1
+          fi
+          VERSION="${TAG#"${PREFIX}v"}"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Tag $TAG is not v<major>.<minor>.<patch>[-<pre-release>]"
+            echo "::error::Tag $TAG is not ${PREFIX}v<major>.<minor>.<patch>[-<pre-release>]"
             exit 1
           fi
           CORE="${VERSION%%-*}"
@@ -153,20 +174,26 @@ jobs:
 
       - name: Changelog since the previous tag
         id: changelog
+        env:
+          TAG: ${{ inputs.tag }}
+          PREFIX: ${{ inputs.tag-prefix }}
+          CHANGELOG_PATHS: ${{ inputs.changelog-paths }}
         run: |
-          PREVIOUS=$(git describe --tags --abbrev=0 "${{ inputs.tag }}^" 2>/dev/null || true)
+          # Only this mod's tags: another mod's release is not the previous one.
+          PREVIOUS=$(git describe --tags --abbrev=0 --match "${PREFIX}v*" "$TAG^" 2>/dev/null || true)
           if [ -n "$PREVIOUS" ]; then
-            RANGE="$PREVIOUS..${{ inputs.tag }}"
+            RANGE="$PREVIOUS..$TAG"
             HEADER="Changes since $PREVIOUS:"
           else
-            RANGE="${{ inputs.tag }}"
+            RANGE="$TAG"
             HEADER="Changes:"
           fi
           {
             echo "text<<CHANGELOG_EOF"
             echo "$HEADER"
             echo
-            git log --no-merges --pretty='- %s' "$RANGE" | grep -vE '^- (docs|chore|ci|test)(\(.*\))?: ' || true
+            # Unquoted on purpose: one pathspec per word; none takes every commit.
+            git log --no-merges --pretty='- %s' "$RANGE" -- $CHANGELOG_PATHS | grep -vE '^- (docs|chore|ci|test)(\(.*\))?: ' || true
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
