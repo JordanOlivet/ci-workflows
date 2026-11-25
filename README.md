@@ -175,7 +175,7 @@ jobs:
 relative to `working-directory`), `game-versions` (every target without its
 own); `java-versions` (`21`), `working-directory` (`.`), `version-file`
 (`gradle.properties`), `java-version` (`21`), `modrinth-id` and
-`curseforge-id` (empty skips the platform), `github-release` (`true`),
+`curseforge-id` (project ids; empty skips the platform), `github-release` (`true`),
 `tag-prefix` and `changelog-paths` (empty; see below).
 
 Several Minecraft versions: a target may carry its own `game-versions` and
@@ -210,6 +210,35 @@ on:
       working-directory: mods/industry
       changelog-paths: mods/industry libs/core
 ```
+
+Publishing an existing tag again, one platform at a time (a store that
+failed, a project that was not ready): an empty `modrinth-id` or
+`curseforge-id` skips that platform (its token is withheld, so mc-publish
+does not fall back to the mod id as a project). A caller can offer that as a
+manual run:
+
+```yaml
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag: {description: 'An existing tag', required: true, type: string}
+      modrinth: {type: boolean, default: true}
+      curseforge: {type: boolean, default: true}
+      github-release: {type: boolean, default: false}
+# ...
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      modrinth-id: ${{ (github.event_name == 'push' || inputs.modrinth) && vars.MODRINTH_ID || '' }}
+      curseforge-id: ${{ (github.event_name == 'push' || inputs.curseforge) && vars.CURSEFORGE_ID || '' }}
+      github-release: ${{ github.event_name == 'push' || inputs.github-release }}
+```
+
+Give project ids, not slugs: Modrinth hides a project under review (the
+upload then fails on the slug), and mc-publish cannot look a CurseForge
+project up by its slug. The same goes for dependencies declared to
+mc-publish in a mod's metadata.
 
 ### Composite Actions
 

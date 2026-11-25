@@ -18,6 +18,13 @@ name: Reusable Mod Publish
 # java-versions), and a version-suffix that keeps Modrinth version numbers
 # unique (the suffix defaults to the loader, which is enough with one jar
 # per loader).
+#
+# Publishing again to one platform (a store that failed, a project that was
+# not ready): a caller can also take workflow_dispatch with the tag as an
+# input, and pass an empty modrinth-id or curseforge-id for the platforms to
+# leave alone, and github-release: false when the release already exists.
+# Use project ids, not slugs: Modrinth hides a project under review, and
+# mc-publish cannot look a CurseForge project up by its slug.
 
 on:
   workflow_call:
@@ -79,7 +86,7 @@ on:
         type: string
         default: '21'
       modrinth-id:
-        description: 'Modrinth project id or slug; empty skips Modrinth'
+        description: 'Modrinth project id (base62; a slug fails while the project is under review); empty skips Modrinth'
         required: false
         type: string
         default: ''
@@ -227,10 +234,13 @@ jobs:
       - name: Publish to Modrinth and CurseForge
         uses: Kir-Antipov/mc-publish@v3.3.1
         with:
+          # mc-publish skips a platform only when its token is empty: given a token and
+          # no id, it takes the mod id from the jar's metadata as the project and fails.
+          # So an empty id withholds the token, and the platform is really skipped.
           modrinth-id: ${{ inputs.modrinth-id }}
-          modrinth-token: ${{ secrets.modrinth-token }}
+          modrinth-token: ${{ inputs.modrinth-id != '' && secrets.modrinth-token || '' }}
           curseforge-id: ${{ inputs.curseforge-id }}
-          curseforge-token: ${{ secrets.curseforge-token }}
+          curseforge-token: ${{ inputs.curseforge-id != '' && secrets.curseforge-token || '' }}
           files: jars/${{ matrix.target.files }}
           name: ${{ inputs.mod-name }} ${{ needs.prepare.outputs.version }} ${{ matrix.target.label }}
           # One version number per target: its suffix (the loader by default) keeps them unique.
