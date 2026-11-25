@@ -137,6 +137,27 @@ jobs:
     secrets: inherit
 ```
 
+#### build-gradle-mod.yml
+
+Build a Gradle Minecraft mod and upload its jars (sources and javadoc jars
+left out). `checks` runs one more shell command from the repository root
+after the upload, with [uv](https://docs.astral.sh/uv/) set up: static
+checks, game tests, anything the repository scripts.
+
+```yaml
+jobs:
+  build:
+    uses: JordanOlivet/ci-workflows/.github/workflows/build-gradle-mod.yml@v1
+    with:
+      working-directory: mods/mymod
+      artifact-name: mymod-jars
+      checks: uv run tools/check_assets.py && uv run tools/gametest.py
+```
+
+**Inputs:** `working-directory`, `java-version` (`21`), `gradle-tasks`
+(`build`), `artifact-name` (`mod-jars`), `artifact-retention-days` (`7`),
+`ref` (the caller's ref), `checks` (empty: no checks).
+
 #### publish-mod.yml
 
 Build a Gradle Minecraft mod at a release tag, publish one jar per loader to

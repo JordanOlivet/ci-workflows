@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: ''
+      checks:
+        description: 'Shell command run from the repository root after the build (uv is set up for it). Empty: no checks.'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -74,3 +79,12 @@ jobs:
             !${{ inputs.working-directory }}/*/build/libs/*-javadoc.jar
           if-no-files-found: error
           retention-days: ${{ inputs.artifact-retention-days }}
+
+      # Checks run after the upload, so a failing check still leaves the jars to inspect.
+      - name: Setup uv
+        if: inputs.checks != ''
+        uses: astral-sh/setup-uv@v6
+
+      - name: Checks
+        if: inputs.checks != ''
+        run: ${{ inputs.checks }}
