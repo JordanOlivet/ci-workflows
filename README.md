@@ -261,6 +261,11 @@ upload then fails on the slug), and mc-publish cannot look a CurseForge
 project up by its slug. The same goes for dependencies declared to
 mc-publish in a mod's metadata.
 
+Older Modrinth versions keep their "featured" mark
+(`modrinth-unfeature-mode: none`): mc-publish removes it by editing them
+after the upload, and a refused edit failed the job with its jar already
+published.
+
 ### Composite Actions
 
 Use composite actions for more granular control:

@@ -239,6 +239,10 @@ jobs:
           # So an empty id withholds the token, and the platform is really skipped.
           modrinth-id: ${{ inputs.modrinth-id }}
           modrinth-token: ${{ inputs.modrinth-id != '' && secrets.modrinth-token || '' }}
+          # Older versions keep their "featured" mark. mc-publish removes it by default
+          # (subset), by editing them after the upload: when Modrinth refuses that edit
+          # (a 401 was seen), the job fails with its jar already published.
+          modrinth-unfeature-mode: none
           curseforge-id: ${{ inputs.curseforge-id }}
           curseforge-token: ${{ inputs.curseforge-id != '' && secrets.curseforge-token || '' }}
           files: jars/${{ matrix.target.files }}
